@@ -58,7 +58,7 @@ export async function main(ns) {
     ns.tprint("Cleaning up any existing processes...");
 
     // Clean up old processes before starting
-    const servers = getAllServersSimple(ns);
+    const allServers = getAllServersSimple(ns);
     const systemScripts = [
         "/hack-v1/manager.js",
         "/hack-v1/scheduler.js",
@@ -68,7 +68,7 @@ export async function main(ns) {
     ];
 
     let killedCount = 0;
-    for (const hostname of servers) {
+    for (const hostname of allServers) {
         if (!ns.hasRootAccess(hostname)) continue;
 
         for (const script of systemScripts) {
@@ -116,9 +116,9 @@ export async function main(ns) {
     ns.tprint(`  launcher.js: ${ns.getScriptRam("/hack-v1/launcher.js")}GB`);
     ns.tprint("");
 
-    // Show available servers (reuse servers from cleanup)
-    const rooted = servers.filter(s => ns.hasRootAccess(s));
-    ns.tprint(`Network: ${servers.length} servers found, ${rooted.length} rooted`);
+    // Show available servers
+    const rooted = allServers.filter(s => ns.hasRootAccess(s));
+    ns.tprint(`Network: ${allServers.length} servers found, ${rooted.length} rooted`);
     ns.tprint("Starting system...");
     ns.tprint("");
 
