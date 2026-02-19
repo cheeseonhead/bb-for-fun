@@ -1,25 +1,8 @@
 /** @param {NS} ns */
 export async function main(ns) {
-    const baseUrl = "https://raw.githubusercontent.com/cheeseonhead/bb-for-fun/main/hack-v1";
+    const baseUrl = "https://raw.githubusercontent.com/cheeseonhead/bb-for-fun/main";
 
     const files = [
-        "launcher.js",
-        "manager.js",
-        "scheduler.js",
-        "analyzer.js",
-        "server-manager.js",
-        "deploy.js",
-        "workers/hack.js",
-        "workers/grow.js",
-        "workers/weaken.js"
-    ];
-
-    ns.tprint("=== HWGW System Downloader ===");
-    ns.tprint("");
-
-    // Delete existing hack-v1 folder
-    ns.tprint("Cleaning up old installation...");
-    const allFiles = [
         "hack-v1/launcher.js",
         "hack-v1/manager.js",
         "hack-v1/scheduler.js",
@@ -31,12 +14,21 @@ export async function main(ns) {
         "hack-v1/workers/weaken.js"
     ];
 
-    for (const file of allFiles) {
-        if (ns.fileExists(file)) {
-            ns.rm(file);
-        }
-    }
+    ns.tprint("=== HWGW System Downloader ===");
+    ns.tprint("");
 
+    // Clean up old installation using ls()
+    ns.tprint("Cleaning up old installation...");
+    const oldFiles = ns.ls("home", "hack-v1/");
+    for (const file of oldFiles) {
+        ns.rm(file);
+    }
+    if (oldFiles.length > 0) {
+        ns.tprint(`Removed ${oldFiles.length} old files`);
+    }
+    ns.tprint("");
+
+    // Download files
     ns.tprint("Starting download from GitHub...");
     ns.tprint("");
 
@@ -45,14 +37,13 @@ export async function main(ns) {
 
     for (const file of files) {
         const url = `${baseUrl}/${file}`;
-        const localPath = `hack-v1/${file}`;
-        const success = await ns.wget(url, localPath);
+        const success = await ns.wget(url, file);
 
         if (success) {
-            ns.tprint(`✓ Downloaded: ${localPath}`);
+            ns.tprint(`✓ Downloaded: ${file}`);
             successCount++;
         } else {
-            ns.tprint(`✗ Failed: ${localPath}`);
+            ns.tprint(`✗ Failed: ${file}`);
             failCount++;
         }
     }
