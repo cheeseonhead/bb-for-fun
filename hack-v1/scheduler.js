@@ -22,21 +22,36 @@ export async function main(ns) {
     ns.print("Scheduler started");
 
     try {
-        // Launch both loops concurrently
-        ns.print("Creating scheduling loop promise...");
-        const schedulingPromise = schedulingLoop(ns);
-        ns.print("Creating status loop promise...");
-        const statusPromise = statusReportingLoop(ns);
+        // TEST: Just create simple loops that only print
+        async function testLoop1(ns) {
+            ns.print("TEST LOOP 1 STARTED");
+            let i = 0;
+            while (true) {
+                ns.print(`Loop 1 iteration ${++i}`);
+                await ns.sleep(2000);
+            }
+        }
 
-        ns.print("Both promises created, waiting on Promise.all...");
-        // Wait for both (they run forever)
-        await Promise.all([schedulingPromise, statusPromise]);
+        async function testLoop2(ns) {
+            ns.print("TEST LOOP 2 STARTED");
+            let j = 0;
+            while (true) {
+                ns.print(`Loop 2 iteration ${++j}`);
+                await ns.sleep(1000);
+            }
+        }
 
-        ns.print("Promise.all completed (this should never happen)");
+        ns.print("Creating test loops...");
+        const p1 = testLoop1(ns);
+        const p2 = testLoop2(ns);
+
+        ns.print("Waiting on Promise.all...");
+        await Promise.all([p1, p2]);
+
     } catch (error) {
         ns.print(`CRITICAL ERROR in main: ${error}`);
         ns.print(`Stack: ${error.stack || 'No stack trace'}`);
-        throw error; // Re-throw so we can see it
+        throw error;
     }
 }
 
@@ -107,9 +122,11 @@ async function schedulingLoop(ns) {
             }
 
             ns.print(`Scheduled operations for ${opsScheduled} targets`);
-            ns.print(`[Scheduling Loop ${iteration}] Complete, sleeping ${SCHEDULE_DELAY}ms`);
+            ns.print(`[Scheduling Loop ${iteration}] Complete, about to sleep ${SCHEDULE_DELAY}ms`);
 
             await ns.sleep(SCHEDULE_DELAY);
+
+            ns.print(`[Scheduling Loop ${iteration}] Woke up from sleep, continuing...`);
 
         } catch (error) {
             ns.print(`[Scheduling Loop ${iteration}] ERROR: ${error}`);
