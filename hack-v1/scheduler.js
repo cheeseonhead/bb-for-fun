@@ -15,6 +15,9 @@ export async function main(ns) {
     const SCHEDULE_DELAY = 10000; // 10 seconds
     let iteration = 0;
 
+    // Persistent state across iterations - tracks all running operations
+    let operationStartTimes = {};
+
     while (true) {
         try {
             iteration++;
@@ -30,14 +33,17 @@ export async function main(ns) {
 
             const { servers } = JSON.parse(serverListData);
 
+            // Clean up finished operations
+            operationStartTimes = cleanupFinishedOperations(ns, servers, operationStartTimes);
+
             // Build RAM pool
             const ramPool = buildRamPool(ns, servers);
 
             if (ramPool.length === 0) {
                 ns.print("No available RAM for operations");
 
-                // Still publish state for status reporter
-                const state = { servers, targets: [], operationStartTimes: {}, timestamp: Date.now() };
+                // Still publish state for status reporter (with existing tracked operations)
+                const state = { servers, targets: [], operationStartTimes, timestamp: Date.now() };
                 ns.clearPort(PORT_SCHEDULER_STATE);
                 await ns.writePort(PORT_SCHEDULER_STATE, JSON.stringify(state));
 
@@ -51,8 +57,8 @@ export async function main(ns) {
             if (targets.length === 0) {
                 ns.print("No valid targets found");
 
-                // Publish empty state
-                const state = { servers, targets: [], operationStartTimes: {}, timestamp: Date.now() };
+                // Publish state with existing tracked operations
+                const state = { servers, targets: [], operationStartTimes, timestamp: Date.now() };
                 ns.clearPort(PORT_SCHEDULER_STATE);
                 await ns.writePort(PORT_SCHEDULER_STATE, JSON.stringify(state));
 
@@ -67,8 +73,7 @@ export async function main(ns) {
                 moneyPerSec: calculateMoneyPerSec(ns, t.hostname)
             }));
 
-            // Schedule operations for each target
-            const operationStartTimes = {}; // Track PIDs and start times
+            // Schedule operations for each target (adds new PIDs to operationStartTimes)
             let opsScheduled = 0;
 
             for (const target of targets) {
@@ -253,4 +258,61 @@ function scheduleOperation(ns, opType, target, threads, ramPool, operationStartT
     }
 
     return deployments;
+}
+
+/**
+ * Get all servers using BFS scan
+ * @param {NS} ns
+ * @returns {string[]}
+ */
+function getAllServers(ns) {
+    const queue = ["home"];
+    const visited = new Set(["home"]);
+    const servers = [];
+
+    while (queue.length > 0) {
+        const current = queue.shift();
+        servers.push(current);
+
+        const neighbors = ns.scan(current);
+        for (const neighbor of neighbors) {
+            if (!visited.has(neighbor)) {
+                visited.add(neighbor);
+                queue.push(neighbor);
+            }
+        }
+    }
+
+    return servers;
+}
+
+/**
+ * Clean up finished operations from tracking map
+ * @param {NS} ns
+ * @param {string[]} servers
+ * @param {Object} operationStartTimes
+ * @returns {Object} Cleaned operation start times
+ */
+function cleanupFinishedOperations(ns, servers, operationStartTimes) {
+    // Get all running PIDs across all servers
+    const runningPids = new Set();
+
+    for (const hostname of servers) {
+        if (!ns.hasRootAccess(hostname)) continue;
+
+        const scripts = ns.ps(hostname);
+        for (const script of scripts) {
+            runningPids.add(script.pid);
+        }
+    }
+
+    // Keep only PIDs that are still running
+    const cleaned = {};
+    for (const pid in operationStartTimes) {
+        if (runningPids.has(parseInt(pid))) {
+            cleaned[pid] = operationStartTimes[pid];
+        }
+    }
+
+    return cleaned;
 }
