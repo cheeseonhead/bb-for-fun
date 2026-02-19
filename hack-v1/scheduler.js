@@ -21,12 +21,18 @@ export async function main(ns) {
     ns.disableLog("ALL");
     ns.print("Scheduler started");
 
-    // Launch both loops concurrently
-    const schedulingPromise = schedulingLoop(ns);
-    const statusPromise = statusReportingLoop(ns);
+    try {
+        // Launch both loops concurrently
+        const schedulingPromise = schedulingLoop(ns);
+        const statusPromise = statusReportingLoop(ns);
 
-    // Wait for both (they run forever)
-    await Promise.all([schedulingPromise, statusPromise]);
+        // Wait for both (they run forever)
+        await Promise.all([schedulingPromise, statusPromise]);
+    } catch (error) {
+        ns.print(`CRITICAL ERROR in main: ${error}`);
+        ns.print(`Stack: ${error.stack || 'No stack trace'}`);
+        throw error; // Re-throw so we can see it
+    }
 }
 
 /**
@@ -35,9 +41,13 @@ export async function main(ns) {
  */
 async function schedulingLoop(ns) {
     const SCHEDULE_DELAY = 10000; // 10 seconds
+    let iteration = 0;
 
     while (true) {
         try {
+            iteration++;
+            ns.print(`[Scheduling Loop ${iteration}] Starting...`);
+
             // Read server list from manager
             const serverListData = ns.peek(PORT_SERVER_LIST);
             if (serverListData === "NULL PORT DATA") {
@@ -47,6 +57,10 @@ async function schedulingLoop(ns) {
             }
 
             const { servers } = JSON.parse(serverListData);
+
+            // Update shared state immediately so status loop has it even if no RAM available
+            sharedState.servers = servers;
+            sharedState.lastScheduleTime = Date.now();
 
             // Build RAM pool
             const ramPool = buildRamPool(ns, servers);
@@ -66,14 +80,12 @@ async function schedulingLoop(ns) {
                 continue;
             }
 
-            // Update shared state for status loop
+            // Update shared state targets for status loop
             sharedState.targets = targets.map(t => ({
                 hostname: t.hostname,
                 score: t.score,
                 moneyPerSec: calculateMoneyPerSec(ns, t.hostname) // Calculate once here
             }));
-            sharedState.servers = servers;
-            sharedState.lastScheduleTime = Date.now();
 
             // Schedule operations for each target
             let opsScheduled = 0;
@@ -90,11 +102,13 @@ async function schedulingLoop(ns) {
             }
 
             ns.print(`Scheduled operations for ${opsScheduled} targets`);
+            ns.print(`[Scheduling Loop ${iteration}] Complete, sleeping ${SCHEDULE_DELAY}ms`);
 
             await ns.sleep(SCHEDULE_DELAY);
 
         } catch (error) {
-            ns.print(`Scheduling loop ERROR: ${error}`);
+            ns.print(`[Scheduling Loop ${iteration}] ERROR: ${error}`);
+            ns.print(`Stack: ${error.stack || 'No stack trace'}`);
             await ns.sleep(SCHEDULE_DELAY);
         }
     }
@@ -106,11 +120,23 @@ async function schedulingLoop(ns) {
  */
 async function statusReportingLoop(ns) {
     const STATUS_DELAY = 1000; // 1 second
+    let iteration = 0;
 
     while (true) {
         try {
+            iteration++;
+            ns.print(`[Status Loop ${iteration}] Starting...`);
+
             // Wait for initial scheduling to populate targets
-            if (sharedState.targets.length === 0) {
+            if (!sharedState.targets || sharedState.targets.length === 0) {
+                ns.print(`[Status Loop ${iteration}] No targets yet, sleeping`);
+                await ns.sleep(STATUS_DELAY);
+                continue;
+            }
+
+            // Ensure servers array exists
+            if (!sharedState.servers || sharedState.servers.length === 0) {
+                ns.print(`[Status Loop ${iteration}] No servers in shared state, sleeping`);
                 await ns.sleep(STATUS_DELAY);
                 continue;
             }
@@ -163,10 +189,12 @@ async function statusReportingLoop(ns) {
             ns.clearPort(PORT_STATUS);
             await ns.writePort(PORT_STATUS, JSON.stringify(status));
 
+            ns.print(`[Status Loop ${iteration}] Complete, sleeping ${STATUS_DELAY}ms`);
             await ns.sleep(STATUS_DELAY);
 
         } catch (error) {
-            ns.print(`Status loop ERROR: ${error}`);
+            ns.print(`[Status Loop ${iteration}] ERROR: ${error}`);
+            ns.print(`Stack: ${error.stack || 'No stack trace'}`);
             await ns.sleep(STATUS_DELAY);
         }
     }
@@ -307,9 +335,12 @@ function scheduleOperation(ns, opType, target, threads, ramPool) {
                 server.freeRam -= ramUsed;
                 server.usedRam += ramUsed;
                 threadsRemaining -= threadsToRun;
+            } else {
+                // exec returned 0 - failed to start
+                ns.print(`Failed to exec ${workerScript} on ${server.hostname} (${threadsToRun}t for ${target})`);
             }
         } catch (error) {
-            // Silently continue if exec fails
+            ns.print(`Error executing ${workerScript} on ${server.hostname}: ${error}`);
         }
     }
 
