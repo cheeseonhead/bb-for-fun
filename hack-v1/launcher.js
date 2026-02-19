@@ -4,7 +4,7 @@
 
 const PORT_STATUS = 2;
 const PORT_CONTROL = 3; // Control port for shutdown signal
-const LOOP_DELAY = 5000; // 5 seconds
+const LOOP_DELAY = 1000; // 1 second
 
 /**
  * Deploy all system scripts to a target server
@@ -379,6 +379,25 @@ function getAllServersSimple(ns) {
 }
 
 /**
+ * Format milliseconds as countdown string
+ * @param {number} ms - Milliseconds
+ * @returns {string} Formatted time like "2m 30s" or "45s"
+ */
+function formatTimeRemaining(ms) {
+    if (ms <= 0) return "0s";
+
+    const totalSeconds = Math.ceil(ms / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    } else {
+        return `${seconds}s`;
+    }
+}
+
+/**
  * Display system status
  * @param {NS} ns
  * @param {string} statusData
@@ -432,9 +451,18 @@ function displayStatus(ns, statusData) {
             const ops = t.operations;
             if (ops && (ops.hack.threads > 0 || ops.grow.threads > 0 || ops.weaken.threads > 0)) {
                 const parts = [];
-                if (ops.hack.threads > 0) parts.push(`H:${ops.hack.threads}t`);
-                if (ops.grow.threads > 0) parts.push(`G:${ops.grow.threads}t`);
-                if (ops.weaken.threads > 0) parts.push(`W:${ops.weaken.threads}t`);
+                if (ops.hack.threads > 0) {
+                    const time = formatTimeRemaining(ops.hack.maxTimeRemaining);
+                    parts.push(`H:${ops.hack.threads}t (${time})`);
+                }
+                if (ops.grow.threads > 0) {
+                    const time = formatTimeRemaining(ops.grow.maxTimeRemaining);
+                    parts.push(`G:${ops.grow.threads}t (${time})`);
+                }
+                if (ops.weaken.threads > 0) {
+                    const time = formatTimeRemaining(ops.weaken.maxTimeRemaining);
+                    parts.push(`W:${ops.weaken.threads}t (${time})`);
+                }
                 ns.print(`   ${parts.join(" | ")}`);
             }
         }
