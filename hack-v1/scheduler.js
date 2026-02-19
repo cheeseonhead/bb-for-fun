@@ -67,7 +67,11 @@ async function schedulingLoop(ns) {
             }
 
             // Update shared state for status loop
-            sharedState.targets = targets;
+            sharedState.targets = targets.map(t => ({
+                hostname: t.hostname,
+                score: t.score,
+                moneyPerSec: calculateMoneyPerSec(ns, t.hostname) // Calculate once here
+            }));
             sharedState.servers = servers;
             sharedState.lastScheduleTime = Date.now();
 
@@ -129,7 +133,7 @@ async function statusReportingLoop(ns) {
                     return {
                         hostname: t.hostname,
                         score: t.score,
-                        moneyPerSec: calculateMoneyPerSec(ns, t.hostname),
+                        moneyPerSec: t.moneyPerSec, // Use pre-calculated value
                         prepped: targetPrepped,
                         activelyWorked: (ops.hack.length + ops.grow.length + ops.weaken.length) > 0,
                         money: ns.getServerMoneyAvailable(t.hostname),
