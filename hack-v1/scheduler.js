@@ -1,6 +1,6 @@
 /** @param {NS} ns */
 
-import { getBestTargets, isPrepped, getPrepNeeds, calculateBatchSize } from "/hack-v1/analyzer.js";
+import { getBestTargets, isPrepped, getPrepNeeds, calculateBatchSize, calculateMoneyPerSec } from "/hack-v1/analyzer.js";
 
 const PORT_SERVER_LIST = 1; // Input port from manager
 const PORT_STATUS = 2; // Output port for status
@@ -44,6 +44,7 @@ export async function main(ns) {
             }
 
             // 4. Schedule operations for each target
+            const activeOperations = {}; // Track PIDs by target
             let opsScheduled = 0;
             for (const target of targets) {
                 const hostname = target.hostname;
@@ -51,11 +52,11 @@ export async function main(ns) {
                 // Check if target is prepped
                 if (!isPrepped(ns, hostname)) {
                     // Schedule prep operations
-                    const scheduled = schedulePrepOperations(ns, hostname, ramPool);
+                    const scheduled = schedulePrepOperations(ns, hostname, ramPool, activeOperations);
                     if (scheduled) opsScheduled++;
                 } else {
                     // Schedule HWGW batch
-                    const scheduled = scheduleHWGWBatch(ns, hostname, ramPool);
+                    const scheduled = scheduleHWGWBatch(ns, hostname, ramPool, activeOperations);
                     if (scheduled) opsScheduled++;
                 }
             }
@@ -64,12 +65,34 @@ export async function main(ns) {
             const status = {
                 timestamp: Date.now(),
                 ramPool: ramPool,
-                targets: targets.slice(0, 5).map(t => ({
-                    hostname: t.hostname,
-                    prepped: isPrepped(ns, t.hostname),
-                    money: ns.getServerMoneyAvailable(t.hostname),
-                    maxMoney: ns.getServerMaxMoney(t.hostname)
-                })),
+                targets: targets.slice(0, 5).map(t => {
+                    const targetPrepped = isPrepped(ns, t.hostname);
+                    const ops = activeOperations[t.hostname] || { hack: [], grow: [], weaken: [] };
+
+                    return {
+                        hostname: t.hostname,
+                        score: t.score,
+                        moneyPerSec: calculateMoneyPerSec(ns, t.hostname),
+                        prepped: targetPrepped,
+                        activelyWorked: (ops.hack.length + ops.grow.length + ops.weaken.length) > 0,
+                        money: ns.getServerMoneyAvailable(t.hostname),
+                        maxMoney: ns.getServerMaxMoney(t.hostname),
+                        operations: {
+                            hack: {
+                                count: ops.hack.length,
+                                threads: ops.hack.reduce((sum, o) => sum + o.threads, 0)
+                            },
+                            grow: {
+                                count: ops.grow.length,
+                                threads: ops.grow.reduce((sum, o) => sum + o.threads, 0)
+                            },
+                            weaken: {
+                                count: ops.weaken.length,
+                                threads: ops.weaken.reduce((sum, o) => sum + o.threads, 0)
+                            }
+                        }
+                    };
+                }),
                 opsScheduled
             };
             ns.clearPort(PORT_STATUS);
@@ -134,19 +157,29 @@ function buildRamPool(ns, servers) {
  * @param {NS} ns
  * @param {string} target
  * @param {Array} ramPool
+ * @param {Object} activeOperations - Operation tracking object
  * @returns {boolean}
  */
-function schedulePrepOperations(ns, target, ramPool) {
+function schedulePrepOperations(ns, target, ramPool, activeOperations) {
     const prepNeeds = getPrepNeeds(ns, target);
+
+    // Initialize target in activeOperations if not exists
+    if (!activeOperations[target]) {
+        activeOperations[target] = { hack: [], grow: [], weaken: [] };
+    }
 
     // Priority 1: Weaken to min security
     if (prepNeeds.weakenThreads > 0) {
-        return scheduleOperation(ns, "weaken", target, prepNeeds.weakenThreads, ramPool);
+        const deployments = scheduleOperation(ns, "weaken", target, prepNeeds.weakenThreads, ramPool);
+        activeOperations[target].weaken.push(...deployments);
+        return deployments.length > 0;
     }
 
     // Priority 2: Grow to max money
     if (prepNeeds.growThreads > 0) {
-        return scheduleOperation(ns, "grow", target, prepNeeds.growThreads, ramPool);
+        const deployments = scheduleOperation(ns, "grow", target, prepNeeds.growThreads, ramPool);
+        activeOperations[target].grow.push(...deployments);
+        return deployments.length > 0;
     }
 
     return false;
@@ -157,17 +190,28 @@ function schedulePrepOperations(ns, target, ramPool) {
  * @param {NS} ns
  * @param {string} target
  * @param {Array} ramPool
+ * @param {Object} activeOperations - Operation tracking object
  * @returns {boolean}
  */
-function scheduleHWGWBatch(ns, target, ramPool) {
+function scheduleHWGWBatch(ns, target, ramPool, activeOperations) {
     const batch = calculateBatchSize(ns, target, HACK_PERCENT);
 
-    // Schedule operations in sequence
-    const hackOk = scheduleOperation(ns, "hack", target, batch.hackThreads, ramPool);
-    const growOk = scheduleOperation(ns, "grow", target, batch.growThreads, ramPool);
-    const weakenOk = scheduleOperation(ns, "weaken", target, batch.weakenThreads, ramPool);
+    // Initialize target in activeOperations if not exists
+    if (!activeOperations[target]) {
+        activeOperations[target] = { hack: [], grow: [], weaken: [] };
+    }
 
-    return hackOk || growOk || weakenOk;
+    // Schedule operations in sequence
+    const hackDeployments = scheduleOperation(ns, "hack", target, batch.hackThreads, ramPool);
+    const growDeployments = scheduleOperation(ns, "grow", target, batch.growThreads, ramPool);
+    const weakenDeployments = scheduleOperation(ns, "weaken", target, batch.weakenThreads, ramPool);
+
+    // Track deployments
+    activeOperations[target].hack.push(...hackDeployments);
+    activeOperations[target].grow.push(...growDeployments);
+    activeOperations[target].weaken.push(...weakenDeployments);
+
+    return hackDeployments.length > 0 || growDeployments.length > 0 || weakenDeployments.length > 0;
 }
 
 /**
@@ -177,12 +221,12 @@ function scheduleHWGWBatch(ns, target, ramPool) {
  * @param {string} target
  * @param {number} threads
  * @param {Array} ramPool
- * @returns {boolean} True if at least some threads scheduled
+ * @returns {Array<{pid: number, host: string, threads: number}>} Array of deployed operations
  */
 function scheduleOperation(ns, opType, target, threads, ramPool) {
     const workerScript = `/hack-v1/workers/${opType}.js`;
     let threadsRemaining = threads;
-    let anyScheduled = false;
+    const deployments = [];
 
     for (const server of ramPool) {
         if (threadsRemaining <= 0) {
@@ -200,17 +244,23 @@ function scheduleOperation(ns, opType, target, threads, ramPool) {
             const pid = ns.exec(workerScript, server.hostname, threadsToRun, target);
 
             if (pid > 0) {
+                // Track this deployment
+                deployments.push({
+                    pid,
+                    host: server.hostname,
+                    threads: threadsToRun
+                });
+
                 // Update RAM tracking
                 const ramUsed = threadsToRun * WORKER_RAM;
                 server.freeRam -= ramUsed;
                 server.usedRam += ramUsed;
                 threadsRemaining -= threadsToRun;
-                anyScheduled = true;
             }
         } catch (error) {
             // Silently continue if exec fails
         }
     }
 
-    return anyScheduled;
+    return deployments;
 }

@@ -120,6 +120,30 @@ export function getBestTargets(ns, count = 5) {
 }
 
 /**
+ * Calculate projected money per second for a target (after prep)
+ * @param {NS} ns
+ * @param {string} hostname
+ * @returns {number} Money per second
+ */
+export function calculateMoneyPerSec(ns, hostname) {
+    const hackTime = ns.getHackTime(hostname);
+    const weakenTime = ns.getWeakenTime(hostname);
+    const growTime = ns.getGrowTime(hostname);
+    const maxMoney = ns.getServerMaxMoney(hostname);
+
+    // Calculate ongoing money per second (after prep)
+    const hackPercent = 0.05; // Conservative 5%
+    const hackChance = ns.hackAnalyzeChance(hostname);
+    const moneyPerHack = maxMoney * hackPercent * hackChance;
+
+    // Cycle time is dominated by the longest operation
+    const cycleTime = Math.max(hackTime, weakenTime, growTime);
+    const moneyPerSecond = moneyPerHack / (cycleTime / 1000);
+
+    return moneyPerSecond;
+}
+
+/**
  * Calculate score for a target server
  * @param {NS} ns
  * @param {string} hostname

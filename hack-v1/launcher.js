@@ -3,6 +3,7 @@
 // NO IMPORTS - Keep this script lightweight!
 
 const PORT_STATUS = 2;
+const PORT_CONTROL = 3; // Control port for shutdown signal
 const LOOP_DELAY = 5000; // 5 seconds
 
 /**
@@ -104,6 +105,15 @@ export async function main(ns) {
 
     while (true) {
         try {
+            // 0. Check for shutdown signal
+            const controlSignal = ns.peek(PORT_CONTROL);
+            if (controlSignal === "SHUTDOWN") {
+                ns.readPort(PORT_CONTROL); // Clear signal
+                killAllSystemProcesses(ns, managerPid, schedulerPid);
+                ns.tprint("System shutdown initiated");
+                return; // Exit launcher
+            }
+
             // 1. Check if manager is running, start if not
             if (!ns.isRunning(managerPid)) {
                 ns.print("--- Starting Manager ---");
@@ -366,14 +376,41 @@ function displayStatus(ns, statusData) {
         ns.print(`Operations scheduled: ${status.opsScheduled}`);
         ns.print("");
 
-        // Targets
-        ns.print("Active Targets:");
+        // Targets (already sorted by priority)
+        ns.print("Active Targets (by priority):");
         for (let i = 0; i < status.targets.length; i++) {
-            const target = status.targets[i];
-            const prepStatus = target.prepped ? "PREPPED" : "PREPPING";
-            const moneyPct = target.maxMoney > 0 ? (target.money / target.maxMoney * 100).toFixed(0) : 0;
+            const t = status.targets[i];
 
-            ns.print(`${i + 1}. ${target.hostname} [${prepStatus}] $${ns.formatNumber(target.money)} (${moneyPct}%)`);
+            // Determine status
+            let statusLabel;
+            if (t.prepped) {
+                statusLabel = "PREPPED";
+            } else if (t.activelyWorked) {
+                statusLabel = "PREPPING"; // Actually being prepped
+            } else {
+                statusLabel = "QUEUED"; // Needs prep but not actively worked
+            }
+
+            const moneyPct = t.maxMoney > 0 ? (t.money / t.maxMoney * 100).toFixed(0) : 0;
+            const moneyPerSec = ns.formatNumber(t.moneyPerSec);
+
+            // Security info
+            const currentSec = ns.getServerSecurityLevel(t.hostname);
+            const minSec = ns.getServerMinSecurityLevel(t.hostname);
+            const secDiff = (currentSec - minSec).toFixed(1);
+
+            // Main target line
+            ns.print(`${i + 1}. ${t.hostname} [${statusLabel}] $${ns.formatNumber(t.money)} (${moneyPct}%) | Sec: ${currentSec.toFixed(1)}/${minSec} (+${secDiff}) | ${moneyPerSec}/s`);
+
+            // Operation details (if any active)
+            const ops = t.operations;
+            if (ops && (ops.hack.threads > 0 || ops.grow.threads > 0 || ops.weaken.threads > 0)) {
+                const parts = [];
+                if (ops.hack.threads > 0) parts.push(`H:${ops.hack.threads}t`);
+                if (ops.grow.threads > 0) parts.push(`G:${ops.grow.threads}t`);
+                if (ops.weaken.threads > 0) parts.push(`W:${ops.weaken.threads}t`);
+                ns.print(`   ${parts.join(" | ")}`);
+            }
         }
 
         ns.print("");
@@ -382,4 +419,49 @@ function displayStatus(ns, statusData) {
     } catch (error) {
         ns.print(`Error parsing status: ${error}`);
     }
+}
+
+/**
+ * Kill all HWGW system processes across all servers
+ * @param {NS} ns
+ * @param {number} managerPid - Manager PID
+ * @param {number} schedulerPid - Scheduler PID
+ */
+function killAllSystemProcesses(ns, managerPid, schedulerPid) {
+    ns.print("=== Killing All System Processes ===");
+    ns.print("");
+
+    // Kill manager and scheduler
+    if (managerPid > 0) {
+        ns.kill(managerPid);
+        ns.print(`✓ Killed manager (PID: ${managerPid})`);
+    }
+    if (schedulerPid > 0) {
+        ns.kill(schedulerPid);
+        ns.print(`✓ Killed scheduler (PID: ${schedulerPid})`);
+    }
+
+    // Kill all workers across all servers
+    const servers = getAllServersSimple(ns);
+    const workerScripts = [
+        "/hack-v1/workers/hack.js",
+        "/hack-v1/workers/grow.js",
+        "/hack-v1/workers/weaken.js"
+    ];
+
+    let workersKilled = 0;
+    for (const hostname of servers) {
+        if (!ns.hasRootAccess(hostname)) continue;
+
+        for (const script of workerScripts) {
+            const killed = ns.scriptKill(script, hostname);
+            if (killed) {
+                workersKilled++;
+            }
+        }
+    }
+
+    ns.print(`✓ Killed ${workersKilled} worker processes`);
+    ns.print("");
+    ns.print("System shutdown complete");
 }
