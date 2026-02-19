@@ -8,9 +8,9 @@
  */
 export async function deployWorkers(ns, servers) {
     const workers = [
-        "/workers/hack.js",
-        "/workers/grow.js",
-        "/workers/weaken.js"
+        "/hack-v1/workers/hack.js",
+        "/hack-v1/workers/grow.js",
+        "/hack-v1/workers/weaken.js"
     ];
 
     let deployedCount = 0;
