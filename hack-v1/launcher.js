@@ -55,6 +55,33 @@ export async function main(ns) {
     ns.ui.openTail();
 
     ns.tprint("=== HWGW System Launcher ===");
+    ns.tprint("Cleaning up any existing processes...");
+
+    // Clean up old processes before starting
+    const servers = getAllServersSimple(ns);
+    const systemScripts = [
+        "/hack-v1/manager.js",
+        "/hack-v1/scheduler.js",
+        "/hack-v1/workers/hack.js",
+        "/hack-v1/workers/grow.js",
+        "/hack-v1/workers/weaken.js"
+    ];
+
+    let killedCount = 0;
+    for (const hostname of servers) {
+        if (!ns.hasRootAccess(hostname)) continue;
+
+        for (const script of systemScripts) {
+            const killed = ns.scriptKill(script, hostname);
+            if (killed) {
+                killedCount++;
+            }
+        }
+    }
+
+    if (killedCount > 0) {
+        ns.tprint(`✓ Killed ${killedCount} old processes`);
+    }
     ns.tprint("Checking system state...");
 
     // Check script files exist
