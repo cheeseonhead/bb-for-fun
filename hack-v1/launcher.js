@@ -168,6 +168,7 @@ export async function main(ns) {
 
                             if (managerPid > 0) {
                                 ns.print(`✓ Manager started on ${managerHost} (PID: ${managerPid})`);
+                                ns.tprint(`✓ Manager deployed to ${managerHost}`);
                             } else {
                                 ns.print(`✗ exec() still returned 0 for ${managerHost}`);
                                 ns.print(`  Script deployed but failed to run`);
@@ -185,6 +186,7 @@ export async function main(ns) {
 
                         if (managerPid > 0) {
                             ns.print(`✓ Manager started on ${managerHost} (PID: ${managerPid})`);
+                            ns.tprint(`✓ Manager deployed to ${managerHost}`);
                         } else {
                             ns.print(`✗ exec() returned 0 for ${managerHost}`);
                             ns.print(`  RAM needed: ${result.scriptRam}GB`);
@@ -223,6 +225,7 @@ export async function main(ns) {
 
                             if (schedulerPid > 0) {
                                 ns.print(`✓ Scheduler started on ${schedulerHost} (PID: ${schedulerPid})`);
+                                ns.tprint(`✓ Scheduler deployed to ${schedulerHost}`);
                             } else {
                                 ns.print(`✗ exec() still returned 0 for ${schedulerHost}`);
                                 ns.print(`  Script deployed but failed to run`);
@@ -240,6 +243,7 @@ export async function main(ns) {
 
                         if (schedulerPid > 0) {
                             ns.print(`✓ Scheduler started on ${schedulerHost} (PID: ${schedulerPid})`);
+                            ns.tprint(`✓ Scheduler deployed to ${schedulerHost}`);
                         } else {
                             ns.print(`✗ exec() returned 0 for ${schedulerHost}`);
                             ns.print(`  RAM needed: ${result.scriptRam}GB`);
