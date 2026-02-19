@@ -10,6 +10,7 @@ export async function main(ns) {
         "hack-v1/scheduler.js",
         "hack-v1/server-manager.js",
         "hack-v1/shutdown.js",
+        "hack-v1/status-reporter.js",
         "hack-v1/workers/grow.js",
         "hack-v1/workers/hack.js",
         "hack-v1/workers/weaken.js"

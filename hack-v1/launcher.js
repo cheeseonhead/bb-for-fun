@@ -20,6 +20,7 @@ async function deployAllScripts(ns, targetHost) {
     const scripts = [
         "/hack-v1/manager.js",
         "/hack-v1/scheduler.js",
+        "/hack-v1/status-reporter.js",
         "/hack-v1/analyzer.js",
         "/hack-v1/server-manager.js",
         "/hack-v1/deploy.js"
@@ -62,6 +63,7 @@ export async function main(ns) {
     const systemScripts = [
         "/hack-v1/manager.js",
         "/hack-v1/scheduler.js",
+        "/hack-v1/status-reporter.js",
         "/hack-v1/workers/hack.js",
         "/hack-v1/workers/grow.js",
         "/hack-v1/workers/weaken.js"
@@ -124,8 +126,10 @@ export async function main(ns) {
 
     let managerPid = 0;
     let schedulerPid = 0;
+    let statusReporterPid = 0;
     let managerHost = "home";
     let schedulerHost = "home";
+    let statusReporterHost = "home";
     let lastDeployedServer = "";
     let initMessageShown = false;
 
@@ -135,7 +139,7 @@ export async function main(ns) {
             const controlSignal = ns.peek(PORT_CONTROL);
             if (controlSignal === "SHUTDOWN") {
                 ns.readPort(PORT_CONTROL); // Clear signal
-                killAllSystemProcesses(ns, managerPid, schedulerPid);
+                killAllSystemProcesses(ns, managerPid, schedulerPid, statusReporterPid);
                 ns.tprint("System shutdown initiated");
                 return; // Exit launcher
             }
@@ -254,7 +258,64 @@ export async function main(ns) {
                 }
             }
 
-            // 3. Read status from scheduler and display
+            // 3. Check if status-reporter is running, start if not
+            if (!ns.isRunning(statusReporterPid)) {
+                ns.print("--- Starting Status Reporter ---");
+                const result = findServerForScript(ns, "/hack-v1/status-reporter.js");
+
+                if (!result) {
+                    ns.print("Cannot start status-reporter - see errors above");
+                    ns.print("");
+                } else {
+                    statusReporterHost = result.hostname;
+
+                    // Deploy all system scripts to target server (if not already deployed)
+                    if (statusReporterHost !== lastDeployedServer) {
+                        ns.print(`Deploying system scripts to ${statusReporterHost}...`);
+                        const deployed = await deployAllScripts(ns, statusReporterHost);
+
+                        if (!deployed) {
+                            ns.print(`✗ Failed to deploy to ${statusReporterHost}`);
+                            ns.print("");
+                        } else {
+                            lastDeployedServer = statusReporterHost;
+                            ns.print(`✓ Scripts deployed to ${statusReporterHost}`);
+
+                            // Now try to run it
+                            statusReporterPid = ns.exec("/hack-v1/status-reporter.js", statusReporterHost, 1);
+
+                            if (statusReporterPid > 0) {
+                                ns.print(`✓ Status reporter started on ${statusReporterHost} (PID: ${statusReporterPid})`);
+                                ns.tprint(`✓ Status reporter deployed to ${statusReporterHost}`);
+                            } else {
+                                ns.print(`✗ exec() still returned 0 for ${statusReporterHost}`);
+                                ns.print(`  Script deployed but failed to run`);
+                                ns.print(`  RAM needed: ${result.scriptRam}GB`);
+                                ns.print(`  RAM free: ${result.freeRam}GB`);
+                                ns.print(`  Check RAM availability and permissions`);
+                            }
+                            ns.print("");
+                        }
+                    } else {
+                        ns.print(`Using existing deployment on ${statusReporterHost}`);
+
+                        // Try to run it
+                        statusReporterPid = ns.exec("/hack-v1/status-reporter.js", statusReporterHost, 1);
+
+                        if (statusReporterPid > 0) {
+                            ns.print(`✓ Status reporter started on ${statusReporterHost} (PID: ${statusReporterPid})`);
+                            ns.tprint(`✓ Status reporter deployed to ${statusReporterHost}`);
+                        } else {
+                            ns.print(`✗ exec() returned 0 for ${statusReporterHost}`);
+                            ns.print(`  RAM needed: ${result.scriptRam}GB`);
+                            ns.print(`  RAM free: ${result.freeRam}GB`);
+                        }
+                        ns.print("");
+                    }
+                }
+            }
+
+            // 4. Read status from status-reporter and display
             const statusData = ns.peek(PORT_STATUS);
             if (statusData !== "NULL PORT DATA") {
                 displayStatus(ns, statusData);
@@ -484,12 +545,13 @@ function displayStatus(ns, statusData) {
  * @param {NS} ns
  * @param {number} managerPid - Manager PID
  * @param {number} schedulerPid - Scheduler PID
+ * @param {number} statusReporterPid - Status Reporter PID
  */
-function killAllSystemProcesses(ns, managerPid, schedulerPid) {
+function killAllSystemProcesses(ns, managerPid, schedulerPid, statusReporterPid) {
     ns.print("=== Killing All System Processes ===");
     ns.print("");
 
-    // Kill manager and scheduler
+    // Kill manager, scheduler, and status-reporter
     if (managerPid > 0) {
         ns.kill(managerPid);
         ns.print(`✓ Killed manager (PID: ${managerPid})`);
@@ -497,6 +559,10 @@ function killAllSystemProcesses(ns, managerPid, schedulerPid) {
     if (schedulerPid > 0) {
         ns.kill(schedulerPid);
         ns.print(`✓ Killed scheduler (PID: ${schedulerPid})`);
+    }
+    if (statusReporterPid > 0) {
+        ns.kill(statusReporterPid);
+        ns.print(`✓ Killed status-reporter (PID: ${statusReporterPid})`);
     }
 
     // Kill all workers across all servers
