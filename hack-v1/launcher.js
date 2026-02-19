@@ -6,22 +6,43 @@ const PORT_STATUS = 2;
 const LOOP_DELAY = 5000; // 5 seconds
 
 /**
- * Deploy a script to a target server
+ * Deploy all system scripts to a target server
  * @param {NS} ns
- * @param {string} scriptPath
  * @param {string} targetHost
  * @returns {Promise<boolean>} Success
  */
-async function deployScript(ns, scriptPath, targetHost) {
+async function deployAllScripts(ns, targetHost) {
     if (targetHost === "home") {
         return true; // Already there
     }
 
+    const scripts = [
+        "/hack-v1/manager.js",
+        "/hack-v1/scheduler.js",
+        "/hack-v1/analyzer.js",
+        "/hack-v1/server-manager.js",
+        "/hack-v1/deploy.js"
+    ];
+
     try {
-        await ns.scp(scriptPath, targetHost, "home");
-        return ns.fileExists(scriptPath, targetHost);
+        ns.print(`  Cleaning old files on ${targetHost}...`);
+        // Delete old versions first
+        for (const script of scripts) {
+            ns.rm(script, targetHost);
+        }
+
+        ns.print(`  Deploying ${scripts.length} scripts...`);
+        // Deploy all scripts
+        for (const script of scripts) {
+            await ns.scp(script, targetHost, "home");
+            if (!ns.fileExists(script, targetHost)) {
+                ns.print(`  ✗ Failed to deploy: ${script}`);
+                return false;
+            }
+        }
+        return true;
     } catch (error) {
-        ns.print(`Failed to deploy ${scriptPath} to ${targetHost}: ${error}`);
+        ns.print(`  Failed to deploy scripts: ${error}`);
         return false;
     }
 }
@@ -78,6 +99,7 @@ export async function main(ns) {
     let schedulerPid = 0;
     let managerHost = "home";
     let schedulerHost = "home";
+    let lastDeployedServer = "";
     let initMessageShown = false;
 
     while (true) {
@@ -93,25 +115,44 @@ export async function main(ns) {
                 } else {
                     managerHost = result.hostname;
 
-                    // Deploy manager.js to target server first
-                    ns.print(`Deploying manager.js to ${managerHost}...`);
-                    const deployed = await deployScript(ns, "/hack-v1/manager.js", managerHost);
+                    // Deploy all system scripts to target server (if not already deployed)
+                    if (managerHost !== lastDeployedServer) {
+                        ns.print(`Deploying system scripts to ${managerHost}...`);
+                        const deployed = await deployAllScripts(ns, managerHost);
 
-                    if (!deployed) {
-                        ns.print(`✗ Failed to deploy to ${managerHost}`);
-                        ns.print("");
+                        if (!deployed) {
+                            ns.print(`✗ Failed to deploy to ${managerHost}`);
+                            ns.print("");
+                        } else {
+                            lastDeployedServer = managerHost;
+                            ns.print(`✓ Scripts deployed to ${managerHost}`);
+
+                            // Now try to run it
+                            managerPid = ns.exec("/hack-v1/manager.js", managerHost, 1);
+
+                            if (managerPid > 0) {
+                                ns.print(`✓ Manager started on ${managerHost} (PID: ${managerPid})`);
+                            } else {
+                                ns.print(`✗ exec() still returned 0 for ${managerHost}`);
+                                ns.print(`  Script deployed but failed to run`);
+                                ns.print(`  RAM needed: ${result.scriptRam}GB`);
+                                ns.print(`  RAM free: ${result.freeRam}GB`);
+                                ns.print(`  Check RAM availability and permissions`);
+                            }
+                            ns.print("");
+                        }
                     } else {
-                        // Now try to run it
+                        ns.print(`Using existing deployment on ${managerHost}`);
+
+                        // Try to run it
                         managerPid = ns.exec("/hack-v1/manager.js", managerHost, 1);
 
                         if (managerPid > 0) {
                             ns.print(`✓ Manager started on ${managerHost} (PID: ${managerPid})`);
                         } else {
-                            ns.print(`✗ exec() still returned 0 for ${managerHost}`);
-                            ns.print(`  Script deployed but failed to run`);
+                            ns.print(`✗ exec() returned 0 for ${managerHost}`);
                             ns.print(`  RAM needed: ${result.scriptRam}GB`);
                             ns.print(`  RAM free: ${result.freeRam}GB`);
-                            ns.print(`  Check RAM availability and permissions`);
                         }
                         ns.print("");
                     }
@@ -129,25 +170,44 @@ export async function main(ns) {
                 } else {
                     schedulerHost = result.hostname;
 
-                    // Deploy scheduler.js to target server first
-                    ns.print(`Deploying scheduler.js to ${schedulerHost}...`);
-                    const deployed = await deployScript(ns, "/hack-v1/scheduler.js", schedulerHost);
+                    // Deploy all system scripts to target server (if not already deployed)
+                    if (schedulerHost !== lastDeployedServer) {
+                        ns.print(`Deploying system scripts to ${schedulerHost}...`);
+                        const deployed = await deployAllScripts(ns, schedulerHost);
 
-                    if (!deployed) {
-                        ns.print(`✗ Failed to deploy to ${schedulerHost}`);
-                        ns.print("");
+                        if (!deployed) {
+                            ns.print(`✗ Failed to deploy to ${schedulerHost}`);
+                            ns.print("");
+                        } else {
+                            lastDeployedServer = schedulerHost;
+                            ns.print(`✓ Scripts deployed to ${schedulerHost}`);
+
+                            // Now try to run it
+                            schedulerPid = ns.exec("/hack-v1/scheduler.js", schedulerHost, 1);
+
+                            if (schedulerPid > 0) {
+                                ns.print(`✓ Scheduler started on ${schedulerHost} (PID: ${schedulerPid})`);
+                            } else {
+                                ns.print(`✗ exec() still returned 0 for ${schedulerHost}`);
+                                ns.print(`  Script deployed but failed to run`);
+                                ns.print(`  RAM needed: ${result.scriptRam}GB`);
+                                ns.print(`  RAM free: ${result.freeRam}GB`);
+                                ns.print(`  Check RAM availability and permissions`);
+                            }
+                            ns.print("");
+                        }
                     } else {
-                        // Now try to run it
+                        ns.print(`Using existing deployment on ${schedulerHost}`);
+
+                        // Try to run it
                         schedulerPid = ns.exec("/hack-v1/scheduler.js", schedulerHost, 1);
 
                         if (schedulerPid > 0) {
                             ns.print(`✓ Scheduler started on ${schedulerHost} (PID: ${schedulerPid})`);
                         } else {
-                            ns.print(`✗ exec() still returned 0 for ${schedulerHost}`);
-                            ns.print(`  Script deployed but failed to run`);
+                            ns.print(`✗ exec() returned 0 for ${schedulerHost}`);
                             ns.print(`  RAM needed: ${result.scriptRam}GB`);
                             ns.print(`  RAM free: ${result.freeRam}GB`);
-                            ns.print(`  Check RAM availability and permissions`);
                         }
                         ns.print("");
                     }
