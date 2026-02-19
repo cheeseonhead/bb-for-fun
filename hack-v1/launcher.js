@@ -116,8 +116,7 @@ export async function main(ns) {
     ns.tprint(`  launcher.js: ${ns.getScriptRam("/hack-v1/launcher.js")}GB`);
     ns.tprint("");
 
-    // Show available servers
-    const servers = getAllServersSimple(ns);
+    // Show available servers (reuse servers from cleanup)
     const rooted = servers.filter(s => ns.hasRootAccess(s));
     ns.tprint(`Network: ${servers.length} servers found, ${rooted.length} rooted`);
     ns.tprint("Starting system...");
