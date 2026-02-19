@@ -23,11 +23,16 @@ export async function main(ns) {
 
     try {
         // Launch both loops concurrently
+        ns.print("Creating scheduling loop promise...");
         const schedulingPromise = schedulingLoop(ns);
+        ns.print("Creating status loop promise...");
         const statusPromise = statusReportingLoop(ns);
 
+        ns.print("Both promises created, waiting on Promise.all...");
         // Wait for both (they run forever)
         await Promise.all([schedulingPromise, statusPromise]);
+
+        ns.print("Promise.all completed (this should never happen)");
     } catch (error) {
         ns.print(`CRITICAL ERROR in main: ${error}`);
         ns.print(`Stack: ${error.stack || 'No stack trace'}`);
@@ -119,6 +124,7 @@ async function schedulingLoop(ns) {
  * @param {NS} ns
  */
 async function statusReportingLoop(ns) {
+    ns.print("=== STATUS LOOP FUNCTION CALLED ===");
     const STATUS_DELAY = 1000; // 1 second
     let iteration = 0;
 
