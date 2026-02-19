@@ -3,29 +3,31 @@ export async function main(ns) {
     const baseUrl = "https://raw.githubusercontent.com/cheeseonhead/bb-for-fun/main";
 
     const files = [
+        "hack-v1/analyzer.js",
+        "hack-v1/deploy.js",
         "hack-v1/launcher.js",
         "hack-v1/manager.js",
         "hack-v1/scheduler.js",
-        "hack-v1/analyzer.js",
         "hack-v1/server-manager.js",
-        "hack-v1/deploy.js",
-        "hack-v1/workers/hack.js",
         "hack-v1/workers/grow.js",
+        "hack-v1/workers/hack.js",
         "hack-v1/workers/weaken.js"
     ];
 
     ns.tprint("=== HWGW System Downloader ===");
     ns.tprint("");
 
-    // Clean up old installation using ls()
-    ns.tprint("Cleaning up old installation...");
-    const oldFiles = ns.ls("home", "hack-v1/");
-    for (const file of oldFiles) {
+    // Clean up old installation
+    ns.tprint("Cleaning up old files...");
+    const hack_v1Files = ns.ls("home", "hack-v1/");
+    for (const file of hack_v1Files) {
         ns.rm(file);
     }
-    if (oldFiles.length > 0) {
-        ns.tprint(`Removed ${oldFiles.length} old files`);
+    const hack_v1_workersFiles = ns.ls("home", "hack-v1/workers/");
+    for (const file of hack_v1_workersFiles) {
+        ns.rm(file);
     }
+    ns.tprint(`Removed old files from tracked folders`);
     ns.tprint("");
 
     // Download files
@@ -53,7 +55,8 @@ export async function main(ns) {
 
     if (failCount === 0) {
         ns.tprint("");
-        ns.tprint("To start the system, run: run hack-v1/launcher.js");
+        ns.tprint("System downloaded successfully!");
+        ns.tprint("Run: run hack-v1/launcher.js");
     } else {
         ns.tprint("");
         ns.tprint("Some files failed to download. Check your connection and try again.");
